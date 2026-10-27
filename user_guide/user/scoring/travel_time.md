@@ -138,8 +138,27 @@ the scoring API never uses it directly.
 
 ## Centroid (CTT)
 
-- `none`: choose unit $c$ minimizing $\sum_u t(c,u)$
-- `p`: choose unit $c$ minimizing $\sum_u t(c,u)\,p_u$
+For weight mode $q\in\{\mathrm{none},p\}$, define the destination weight
+
+$$
+w_q(u)=
+\begin{cases}
+1, & q=\mathrm{none},\\
+p_u, & q=p.
+\end{cases}
+$$
+
+The selected centroid unit is
+
+$$
+c_q^*(D)
+=\underset{c\in D}{\operatorname{arg\,min}}
+\sum_{u\in D} t(c,u)w_q(u).
+$$
+
+Thus `none` minimizes $\sum_{u\in D}t(c,u)$ and `p` minimizes
+$\sum_{u\in D}t(c,u)p_u$. If several candidates have the same minimum cost,
+the implementation selects the first tied candidate in the supplied unit order.
 
 Every unit is eligible to represent the center, including a zero-population unit.
 Only destination population $p_u$ enters the population-weighted definition.
@@ -196,6 +215,12 @@ declared time unit (`seconds` or `minutes`), the required mean-of-directions pol
 and JSON metadata supplied by the builder. Saving and loading both validate the
 table; disconnected tables cannot be published through this API.
 
+NPZ is NumPy's ZIP-based container for one or more arrays. “Pickle-free” means
+this artifact contains only numeric arrays and Unicode JSON strings, rather than
+serialized Python objects, and is loaded with `allow_pickle=False`. Loading it
+therefore does not invoke Python object unpickling, and readers can inspect its
+schema without depending on the Python classes that originally created it.
+
 Builder metadata should be sufficient to reproduce and audit the table, including
 the geography vintage, source file identifiers, OSM snapshot date, routing profile,
 representative-point rule, snapping rule, ferry policy, and software versions.
@@ -218,6 +243,14 @@ print(artifact.time_unit, artifact.metadata)
 The optional table builder requires OSMnx and Pyrosm. Install the extra from a
 checkout with `uv sync --extra travel-time`, or from a published package with
 `pip install "gerrytools[travel-time]"`.
+
+Pyrosm is the local parser for OpenStreetMap's binary `.osm.pbf` extract. In this
+workflow it reads the driving nodes and ways, extracts tagged ferry features, and
+converts the result into an OSMnx-compatible NetworkX graph. OSMnx then adds road
+speeds and edge travel times, projects the graph for distance calculations, and
+supports nearest-node operations. Pyrosm and OSMnx are needed only to build a
+table from an OSM extract; scoring an existing `TravelTimeTable` does not require
+either dependency.
 
 The implemented unit-to-unit measure is shortest-path travel time between the
 selected nodes of the retained road network. The node-selection rule is part of
