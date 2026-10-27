@@ -20,11 +20,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the centroid unit's population. Includes district and plan aggregates, strict connectivity
   validation, mean-of-directions symmetrization, and pickle-free table serialization.
   Population-weighted scores reject missing or invalid populations; singleton districts validate
-  OD membership before returning `NaN`. The builder constructs travel times between the connected
-  road-network nodes nearest caller-supplied representative points (for example Census
-  ``INTPTLAT20`` / ``INTPTLON20``), adds eligible vehicle ferries, retains the largest strongly
-  connected driving component, and reports snap-distance diagnostics. These scores are not part
-  of the compiled `PlanEvaluator` engine.
+  OD membership before returning `NaN`. The builder constructs travel times between connected
+  road-network nodes selected from caller-supplied representative points (for example Census
+  ``INTPTLAT20`` / ``INTPTLON20``) using point-only or optional polygon-aware snapping, adds
+  eligible vehicle ferries, retains the largest strongly connected driving component, and reports
+  snap-distance diagnostics. These scores are not part of the compiled `PlanEvaluator` engine.
 - Travel-time builder speed repair: non-positive / non-finite edge speeds are imputed with a
   documented fallback (default 48 kph), travel times are recomputed, and
   ``SpeedRepairSummary`` counts are surfaced on the build report. Edges are never dropped.

@@ -1,8 +1,11 @@
-# Travel-time scores (PTT / CTT)
+# Travel-time methodology and scores (PTT / CTT)
 
-Measure how long it takes to drive *within* a district using a finished
-unit-to-unit drive-time table. These scores are **not** part of the compiled
-`PlanEvaluator` engine: you build (or load) a `TravelTimeTable`, then call the
+This page defines the methodology implemented by
+`gerrytools.scoring.travel_time`: how unit-to-unit drive times are constructed,
+how pairwise travel time (PTT) and centroid travel time (CTT) are calculated,
+and which diagnostics and limitations apply. The metrics use a finished
+unit-to-unit drive-time table. They are **not** part of the compiled
+`PlanEvaluator` engine: build (or load) a `TravelTimeTable`, then call the
 convenience functions or reusable metric objects.
 
 Python naming follows the rest of GerryTools: modules and functions use
@@ -14,6 +17,25 @@ Routes may leave the district because shortest paths use the full statewide
 network. Every unit included in the analysis must be mutually reachable through
 that network. Scoring rejects a disconnected OD table rather than silently
 removing unreachable trips from a district denominator.
+
+## Method summary
+
+1. Choose one representative point per geographic unit. Census internal points
+   are available through `census_representative_points(...)`; callers may supply
+   another documented point source.
+2. Build a directed OSM driving graph, add eligible vehicle ferries, assign edge
+   speeds and travel times, and retain the largest strongly connected component.
+3. Select one retained road node per unit with either nearest-node snapping or
+   the optional polygon-aware policy described below.
+4. Route between every selected node in both directions. Define the scoring time
+   for an unordered pair as the arithmetic mean of the two directed shortest-path
+   times.
+5. Require a finite scoring time for every unit pair, then calculate district PTT
+   and CTT and one of the documented plan summaries.
+
+PTT and CTT inherit the time unit of the input table. Serialized artifacts declare
+that unit as seconds or minutes; the scoring functions do not perform an implicit
+unit conversion.
 
 ## Statewide connectivity
 
@@ -193,10 +215,15 @@ The optional table builder requires OSMnx and Pyrosm. Install the extra from a
 checkout with `uv sync --extra travel-time`, or from a published package with
 `pip install "gerrytools[travel-time]"`.
 
-The implemented unit-to-unit measure is:
+The implemented unit-to-unit measure is shortest-path travel time between the
+selected nodes of the retained road network. The node-selection rule is part of
+the methodology and is recorded in the artifact metadata:
 
-**Travel time between the connected road-network nodes nearest the supplied
-representative points.**
+- **Point-only:** the retained road node nearest the supplied representative
+  point.
+- **Polygon-aware:** the retained road node inside the unit and nearest its
+  representative point. If no retained node lies inside the unit, use a node
+  nearest an exterior boundary ring; polygon holes are excluded.
 
 Canonical workflow:
 
@@ -205,7 +232,8 @@ Canonical workflow:
    or any other Point frame with a declared CRS);
 2. build a directed driving graph from a local OSM PBF, add eligible vehicle
    ferries, then retain the largest strongly connected component;
-3. snap each point to the nearest retained road node and record snap distances;
+3. select a retained road node using the documented point-only or polygon-aware
+   rule and record representative-point-to-node distance;
 4. compute directed shortest paths, average opposite directions, and publish a
    table only when every snapped-node pair is mutually reachable.
 
