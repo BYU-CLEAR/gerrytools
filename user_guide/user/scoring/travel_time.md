@@ -95,24 +95,24 @@ people-time (`p`). Weighted maximums are $\max(tw)$ and have the same units.
 More explicitly, for district units $D$:
 
 $$
-\operatorname{PTT}_{\mathrm{mean}}(D)
+\mathrm{PTT}_{\mathrm{mean}}(D)
 = \frac{1}{\binom{|D|}{2}}\sum_{\{i,j\}\subset D} t(i,j)w(i,j),
 $$
 
 $$
-\operatorname{PTT}_{\mathrm{max}}(D)
+\mathrm{PTT}_{\mathrm{max}}(D)
 = \max_{\{i,j\}\subset D} t(i,j)w(i,j).
 $$
 
 After choosing centroid unit $c$:
 
 $$
-\operatorname{CTT}_{\mathrm{mean}}(D)
+\mathrm{CTT}_{\mathrm{mean}}(D)
 = \frac{1}{|D|}\sum_{u\in D} t(c,u)w(c,u),
 $$
 
 $$
-\operatorname{CTT}_{\mathrm{max}}(D)
+\mathrm{CTT}_{\mathrm{max}}(D)
 = \max_{u\in D} t(c,u)w(c,u).
 $$
 
@@ -152,7 +152,7 @@ The selected centroid unit is
 
 $$
 c_q^*(D)
-=\underset{c\in D}{\operatorname{arg\,min}}
+=\underset{c\in D}{\mathrm{arg\,min}}
 \sum_{u\in D} t(c,u)w_q(u).
 $$
 
