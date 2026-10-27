@@ -14,9 +14,13 @@ types use `PascalCase` (`TravelTimeTable`, `TravelTimeBuildReport`). In prose,
 “travel time” is the noun and “travel-time” is used as a compound adjective.
 
 Routes may leave the district because shortest paths use the full statewide
-network. Every unit included in the analysis must be mutually reachable through
-that network. Scoring rejects a disconnected OD table rather than silently
-removing unreachable trips from a district denominator.
+network. The OSM builder adds eligible ferries and then retains the largest
+strongly connected road component before selecting one node per unit, so nodes
+selected by that workflow should be mutually routable. The builder verifies the
+finished table, and the scoring API independently validates any supplied OD table,
+including tables created elsewhere. If any unit pair has a non-finite travel time,
+scoring raises an error rather than silently removing that trip from a district
+denominator.
 
 ## Method summary
 
