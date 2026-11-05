@@ -435,10 +435,19 @@ def test_driving_ferry_policy_encodes_osm_access_hierarchy():
     assert policy.decide({"motorcar": "no", "motor_vehicle": "yes"}) == (
         road_graph_module.FerryAccessDecision(False, "motorcar", "no")
     )
+    assert policy.decide({"motorcar": ["no"], "motor_vehicle": "yes"}) == (
+        road_graph_module.FerryAccessDecision(False, "motorcar", "no")
+    )
+    assert policy.decide({"motorcar": "yes;no", "motor_vehicle": "yes"}) == (
+        road_graph_module.FerryAccessDecision(False, "motorcar", "no")
+    )
+    assert policy.decide({"motorcar": ["yes"], "motor_vehicle": "no"}) == (
+        road_graph_module.FerryAccessDecision(True, "motorcar", "yes")
+    )
     assert policy.decide({"vehicle": "yes", "access": "no"}) == (
         road_graph_module.FerryAccessDecision(True, "vehicle", "yes")
     )
-    assert policy.decide({"ferry": "primary"}) == road_graph_module.FerryAccessDecision(
+    assert policy.decide({"ferry": ["primary"]}) == road_graph_module.FerryAccessDecision(
         True, "ferry", "primary"
     )
 

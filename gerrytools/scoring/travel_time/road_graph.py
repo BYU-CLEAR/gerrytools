@@ -115,16 +115,24 @@ class FerryAccessPolicy:
             FerryAccessDecision: Permission plus the tag and value that decided it.
         """
         for source in self.keys:
-            value = _tag(tags.get(source))
-            if value in self.allow:
-                return FerryAccessDecision(True, source, value)
-            if value in self.deny:
-                return FerryAccessDecision(False, source, value)
+            values = _tag_values(tags.get(source))
+            denied = sorted(values & self.deny)
+            if denied:
+                return FerryAccessDecision(False, source, denied[0])
+            allowed = sorted(values & self.allow)
+            if allowed:
+                return FerryAccessDecision(True, source, allowed[0])
 
-        ferry_class = _tag(tags.get("ferry"))
-        if ferry_class in self.ferry_classes:
-            return FerryAccessDecision(True, "ferry", ferry_class)
-        return FerryAccessDecision(False, "undetermined", ferry_class)
+        raw_ferry_classes = _tag_values(tags.get("ferry"))
+        ferry_classes = sorted(raw_ferry_classes & self.ferry_classes)
+        if ferry_classes:
+            return FerryAccessDecision(True, "ferry", ferry_classes[0])
+        unrecognized = sorted(raw_ferry_classes)
+        return FerryAccessDecision(
+            False,
+            "undetermined",
+            unrecognized[0] if unrecognized else None,
+        )
 
 
 DRIVING_FERRY_ACCESS = FerryAccessPolicy(
