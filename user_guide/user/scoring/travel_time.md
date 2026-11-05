@@ -16,8 +16,13 @@ $$
 $$
 
 The pairwise weight is $1$ for `none`, $p_i+p_j$ for `p+p`, and $p_i p_j$ for `p*p`.
+Population-weighted modes intentionally retain the number of unit pairs in the denominator rather
+than normalizing by the sum of the weights. They are therefore population-scaled scores, not an
+average expressed only in the table's time unit.
 
-Centroid travel time first selects the district unit minimizing weighted travel to every unit:
+Centroid travel time first selects the district unit minimizing weighted travel to every unit. The
+selected unit is a discrete travel-time medoid: it is not a geometric centroid or an arbitrary
+road-network point.
 
 $$
 c_D=\underset{c\in U_D}{\mathrm{arg\,min}}\sum_{u\in U_D}t(c,u)v_u.
@@ -31,7 +36,9 @@ $$
 $$
 
 The centroid weight $v_u$ is $1$ for `none` and the destination population $p_u$ for `p`. The
-candidate centroid's population does not independently affect its selection.
+candidate centroid's population does not independently affect its selection. Population-weighted
+CTT intentionally retains the number of district units in the denominator rather than normalizing
+by total population, so it is also a population-scaled score.
 
 Both families also expose the maximum weighted trip. When all population weights are zero, the
 weighted mean and maximum are both zero. A singleton district has no pairwise trip and receives

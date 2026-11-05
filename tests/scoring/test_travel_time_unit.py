@@ -115,7 +115,8 @@ def test_unweighted_modes_do_not_require_population() -> None:
     assert centroid_travel_time(graph, assignment(), od=corridor_table()).tolist() == [5.0, 5.0]
 
 
-def test_population_weighted_modes_use_source_attribute() -> None:
+def test_population_weighted_modes_are_raw_and_use_source_attribute() -> None:
+    """Population weights scale terms without changing the trip-count denominator."""
     graph = plan_graph()
     ptt = pairwise_travel_time(
         graph,
