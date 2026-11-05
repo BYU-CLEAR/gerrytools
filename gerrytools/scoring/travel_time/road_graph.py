@@ -23,28 +23,8 @@ DEFAULT_FALLBACK_SPEED_KPH = 48.0
 _OSM_DRIVE_NETWORK_TYPE = "driving+service"
 _ROAD_NETWORK_POLICY = "driving+scc_bridge_service"
 
-_ACCESS_ALLOWED = frozenset({"yes", "designated", "permissive", "official", "destination"})
-_ACCESS_DENIED = frozenset({"no", "private"})
 _EXCLUDED_SERVICE_CLASSES = frozenset(
     {"alley", "driveway", "emergency_access", "parking", "parking_aisle", "private"}
-)
-_DRIVABLE_FERRY_CLASSES = frozenset(
-    {
-        "yes",
-        "motorcar",
-        "motor_vehicle",
-        "motorway",
-        "trunk",
-        "primary",
-        "secondary",
-        "tertiary",
-        "unclassified",
-        "residential",
-        "service",
-        "track",
-        "road",
-        "living_street",
-    }
 )
 
 
@@ -96,11 +76,80 @@ class SpeedRepairSummary:
 
 @dataclass(frozen=True, slots=True)
 class FerryAccessDecision:
-    """Result of applying OSM's motor-vehicle access hierarchy to a ferry way."""
+    """Result of applying OSM's motor-vehicle access hierarchy to a ferry way.
+
+    Args:
+        allowed (bool): Whether the ferry admits motor vehicles.
+        source (str): OSM tag whose value decided access, or ``"undetermined"``.
+        value (str | None): Normalized deciding tag value when present.
+    """
 
     allowed: bool
     source: str
     value: str | None
+
+
+@dataclass(frozen=True, slots=True)
+class FerryAccessPolicy:
+    """Structured OSM motor-vehicle access policy for ferry ways.
+
+    Args:
+        keys (tuple[str, ...]): Access tags from most to least specific.
+        allow (frozenset[str]): Values that explicitly permit access.
+        deny (frozenset[str]): Values that explicitly deny access.
+        ferry_classes (frozenset[str]): Drivable ``ferry=*`` fallback classes.
+    """
+
+    keys: tuple[str, ...]
+    allow: frozenset[str]
+    deny: frozenset[str]
+    ferry_classes: frozenset[str]
+
+    def decide(self, tags: Mapping[str, Any]) -> FerryAccessDecision:
+        """Resolve access using the first recognized tag in hierarchy order.
+
+        Args:
+            tags (Mapping[str, Any]): OSM attributes for one ferry way.
+
+        Returns:
+            FerryAccessDecision: Permission plus the tag and value that decided it.
+        """
+        for source in self.keys:
+            value = _tag(tags.get(source))
+            if value in self.allow:
+                return FerryAccessDecision(True, source, value)
+            if value in self.deny:
+                return FerryAccessDecision(False, source, value)
+
+        ferry_class = _tag(tags.get("ferry"))
+        if ferry_class in self.ferry_classes:
+            return FerryAccessDecision(True, "ferry", ferry_class)
+        return FerryAccessDecision(False, "undetermined", ferry_class)
+
+
+DRIVING_FERRY_ACCESS = FerryAccessPolicy(
+    keys=("motorcar", "motor_vehicle", "vehicle", "access"),
+    allow=frozenset({"yes", "designated", "permissive", "official", "destination"}),
+    deny=frozenset({"no", "private"}),
+    ferry_classes=frozenset(
+        {
+            "yes",
+            "motorcar",
+            "motor_vehicle",
+            "motorway",
+            "trunk",
+            "primary",
+            "secondary",
+            "tertiary",
+            "unclassified",
+            "residential",
+            "service",
+            "track",
+            "road",
+            "living_street",
+        }
+    ),
+)
 
 
 class ConnectivityFilterSummary(TypedDict):
@@ -356,17 +405,7 @@ def _service_only_nodes(graph: nx.MultiDiGraph) -> frozenset[Hashable]:
 
 def _ferry_access_decision(row: Mapping[str, Any]) -> FerryAccessDecision:
     """Resolve access from the most specific applicable OSM tag."""
-    for source in ("motorcar", "motor_vehicle", "vehicle", "access"):
-        value = _tag(row.get(source))
-        if value in _ACCESS_ALLOWED:
-            return FerryAccessDecision(True, source, value)
-        if value in _ACCESS_DENIED:
-            return FerryAccessDecision(False, source, value)
-
-    ferry_class = _tag(row.get("ferry"))
-    if ferry_class in _DRIVABLE_FERRY_CLASSES:
-        return FerryAccessDecision(True, "ferry", ferry_class)
-    return FerryAccessDecision(False, "undetermined", ferry_class)
+    return DRIVING_FERRY_ACCESS.decide(row)
 
 
 def _as_line(geometry: Any) -> LineString | None:

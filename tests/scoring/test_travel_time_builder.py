@@ -428,6 +428,21 @@ def test_add_vehicle_ferries_uses_most_specific_access_tag(
         assert data["ferry_access_value"] == "yes"
 
 
+def test_driving_ferry_policy_encodes_osm_access_hierarchy():
+    policy = road_graph_module.DRIVING_FERRY_ACCESS
+
+    assert policy.keys == ("motorcar", "motor_vehicle", "vehicle", "access")
+    assert policy.decide({"motorcar": "no", "motor_vehicle": "yes"}) == (
+        road_graph_module.FerryAccessDecision(False, "motorcar", "no")
+    )
+    assert policy.decide({"vehicle": "yes", "access": "no"}) == (
+        road_graph_module.FerryAccessDecision(True, "vehicle", "yes")
+    )
+    assert policy.decide({"ferry": "primary"}) == road_graph_module.FerryAccessDecision(
+        True, "ferry", "primary"
+    )
+
+
 def test_add_vehicle_ferries_requires_positive_estimation_speed():
     graph = nx.MultiDiGraph(crs="EPSG:3857")
     with pytest.raises(ValueError, match="positive"):
