@@ -86,6 +86,7 @@ def _write_npz_parts(
     unit_ids: object = ("001", "002"),
     metadata: object = None,
     include_times: bool = True,
+    times: np.ndarray | None = None,
 ) -> None:
     if metadata is None:
         metadata = {
@@ -100,7 +101,9 @@ def _write_npz_parts(
         "metadata_json": np.array(json.dumps(metadata)),
     }
     if include_times:
-        values["times"] = np.array([[0.0, 5.0], [5.0, 0.0]], dtype=np.float32)
+        values["times"] = (
+            np.array([[0.0, 5.0], [5.0, 0.0]], dtype=np.float32) if times is None else times
+        )
     np.savez_compressed(path, **values)
 
 
@@ -131,6 +134,16 @@ def test_table_load_rejects_missing_fields(tmp_path: Path) -> None:
             },
             "travel-time unit",
         ),
+        (
+            ["001", "002"],
+            {
+                "schema_version": 1,
+                "symmetrization": "mean_of_directions",
+                "time_unit": "seconds",
+                "matrix_dtype": "float64",
+            },
+            "matrix dtype declaration",
+        ),
     ],
 )
 def test_table_load_rejects_invalid_schema(
@@ -142,6 +155,14 @@ def test_table_load_rejects_invalid_schema(
     path = tmp_path / "invalid.npz"
     _write_npz_parts(path, unit_ids=unit_ids, metadata=metadata)
     with pytest.raises(ValueError, match=message):
+        load_travel_time_table(path)
+
+
+def test_table_load_rejects_non_float32_matrix(tmp_path: Path) -> None:
+    path = tmp_path / "float64.npz"
+    times = np.array([[0.0, 5.0], [5.0, 0.0]], dtype=np.float64)
+    _write_npz_parts(path, times=times)
+    with pytest.raises(ValueError, match="times matrix must use float32"):
         load_travel_time_table(path)
 
 

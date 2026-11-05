@@ -153,7 +153,7 @@ def load_travel_time_table(path: str | Path) -> TravelTimeArtifact:
             raise ValueError(f"Travel-time artifact is missing fields: {sorted(missing)!r}")
         unit_ids_raw = json.loads(str(data["unit_ids_json"].item()))
         metadata_raw = json.loads(str(data["metadata_json"].item()))
-        times = np.array(data["times"], dtype=float, copy=True)
+        stored_times = np.array(data["times"], copy=True)
 
     if not isinstance(unit_ids_raw, list) or not all(
         isinstance(unit_id, (str, int)) and not isinstance(unit_id, bool)
@@ -175,10 +175,19 @@ def load_travel_time_table(path: str | Path) -> TravelTimeArtifact:
         raise ValueError(
             f"Unsupported travel-time unit: {metadata_raw.get('time_unit')!r}"
         ) from exc
+    if metadata_raw.get("matrix_dtype") != "float32":
+        raise ValueError(
+            "Unsupported travel-time matrix dtype declaration: "
+            f"{metadata_raw.get('matrix_dtype')!r}"
+        )
+    if stored_times.dtype != np.dtype(np.float32):
+        raise ValueError(
+            f"Travel-time artifact times matrix must use float32; got {stored_times.dtype}"
+        )
     user_metadata = metadata_raw.get("metadata")
     if not isinstance(user_metadata, dict):
         raise ValueError("Travel-time artifact metadata field must contain an object")
 
-    table = TravelTimeTable.from_matrix(unit_ids_raw, times)
+    table = TravelTimeTable.from_matrix(unit_ids_raw, stored_times)
     table.validate_connected()
     return TravelTimeArtifact(table=table, time_unit=time_unit, metadata=user_metadata)
