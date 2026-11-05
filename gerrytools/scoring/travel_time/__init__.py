@@ -8,18 +8,10 @@ units and divide by the number of trips.
 
 from .api import centroid_travel_time, pairwise_travel_time, travel_time_scores
 from .builder import (
-    DEFAULT_FALLBACK_SPEED_KPH,
-    DEFAULT_FERRY_SPEED_KPH,
-    FerryBuildSummary,
-    SpeedRepairSummary,
     TravelTimeBuildReport,
     TravelTimeBuildResult,
-    build_osm_drive_graph,
     build_travel_time_table,
     build_travel_time_table_from_pbf,
-    census_representative_points,
-    repair_nonpositive_edge_speeds,
-    snap_units_to_graph,
 )
 from .od_table import TravelTimeTable
 from .provenance import (
@@ -29,6 +21,15 @@ from .provenance import (
     load_snapping_artifact,
     save_snapping_artifact,
 )
+from .road_graph import (
+    DEFAULT_FALLBACK_SPEED_KPH,
+    DEFAULT_FERRY_SPEED_KPH,
+    FerryBuildSummary,
+    SpeedRepairSummary,
+    build_osm_drive_graph,
+    repair_nonpositive_edge_speeds,
+)
+from .snapping import census_representative_points, snap_units_to_graph
 from .table_io import (
     TimeUnit,
     TravelTimeArtifact,

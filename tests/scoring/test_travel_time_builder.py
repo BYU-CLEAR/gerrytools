@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import sys
+from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
 from typing import cast
@@ -16,8 +17,10 @@ import pytest
 from shapely.geometry import LineString, MultiLineString, Point, Polygon
 
 import gerrytools.scoring.travel_time.builder as builder_module
+import gerrytools.scoring.travel_time.road_graph as road_graph_module
 from gerrytools.scoring.travel_time import (
     FerryBuildSummary,
+    TravelTimeBuildResult,
     build_osm_drive_graph,
     build_travel_time_table,
     build_travel_time_table_from_pbf,
@@ -28,11 +31,11 @@ from gerrytools.scoring.travel_time import (
     repair_nonpositive_edge_speeds,
     snap_units_to_graph,
 )
-from gerrytools.scoring.travel_time.builder import (
+from gerrytools.scoring.travel_time.road_graph import (
     add_vehicle_ferries,
-    compute_directed_travel_times,
     parse_osm_duration_seconds,
 )
+from gerrytools.scoring.travel_time.routing import compute_directed_travel_times
 
 
 def _directed_graph() -> nx.MultiDiGraph:
@@ -52,12 +55,17 @@ def _directed_graph() -> nx.MultiDiGraph:
         ("1:15", 4500.0),
         ("1:02:03", 3723.0),
         ("PT1H30M", 5400.0),
+        ("pt1h30m", 5400.0),
+        ("PT1.5H", 5400.0),
         (None, None),
         ("", None),
         ("not-a-duration", None),
         ("1:not-a-number", None),
         ("1:75", None),
         ("PT45S", 45.0),
+        ("PT", None),
+        ("P1DT2H", None),
+        ("PT1M2H", None),
     ],
 )
 def test_parse_osm_duration_seconds(value, expected):
@@ -203,7 +211,7 @@ def test_component_audit_captures_removed_edges_without_retaining_nodes():
     graph.add_edge(10, 11, highway="service", travel_time=2.0, length=10.0)
     graph.add_edge(11, 10, highway="service", travel_time=2.0, length=10.0)
 
-    summary, removed = builder_module._retain_principal_strong_component(
+    summary, removed = road_graph_module._retain_principal_strong_component(
         graph, include_component_audit=True
     )
 
@@ -225,7 +233,7 @@ def test_component_audit_returns_empty_frame_when_nothing_removed():
     graph.add_edge(1, 2, travel_time=1.0, length=10.0)
     graph.add_edge(2, 1, travel_time=1.0, length=10.0)
 
-    _, removed = builder_module._retain_principal_strong_component(
+    _, removed = road_graph_module._retain_principal_strong_component(
         graph, include_component_audit=True
     )
 
@@ -256,6 +264,7 @@ def test_build_travel_time_table_writes_validated_artifacts(tmp_path: Path):
     assert result.report.asymmetric_pair_count == 3
     assert result.report.max_directional_difference_seconds == pytest.approx(12.0)
     assert result.report.mean_snap_distance_m == pytest.approx(20.0)
+    assert result.report.max_snap_distance_m == pytest.approx(30.0)
     assert result.directed_times is not None and not result.directed_times.flags.writeable
     assert dict(result.snap_distances_m) == {"a": 10.0, "b": 20.0, "c": 30.0}
     with pytest.raises(TypeError):
@@ -337,7 +346,7 @@ def test_service_filter_keeps_only_components_bridging_base_road_sccs():
         }
     )
 
-    filtered_nodes, filtered_edges, stats = builder_module._filter_service_edges(nodes, edges)
+    filtered_nodes, filtered_edges, stats = road_graph_module._filter_service_edges(nodes, edges)
 
     retained_pairs = set(zip(filtered_edges["u"], filtered_edges["v"]))
     assert {(2, 3), (3, 4)}.issubset(retained_pairs)
@@ -356,7 +365,7 @@ def test_service_only_nodes_are_not_snap_targets():
     graph.add_edge(1, 2, highway="residential")
     graph.add_edge(2, 3, highway="service")
 
-    assert builder_module._service_only_nodes(graph) == frozenset({3})
+    assert road_graph_module._service_only_nodes(graph) == frozenset({3})
 
 
 def test_add_vehicle_ferries_uses_osm_duration_and_estimate(monkeypatch: pytest.MonkeyPatch):
@@ -783,7 +792,7 @@ def test_open_pyrosm_reader_falls_back_only_for_unsupported_keyword(tmp_path: Pa
             if kwargs:
                 raise TypeError("unexpected keyword argument 'keep_metadata'")
 
-    reader = builder_module._open_pyrosm_reader(pbf, LegacyOSM)
+    reader = road_graph_module._open_pyrosm_reader(pbf, LegacyOSM)
 
     assert isinstance(reader, LegacyOSM)
     assert calls == [(str(pbf), {"keep_metadata": False}), (str(pbf), {})]
@@ -798,7 +807,7 @@ def test_open_pyrosm_reader_does_not_mask_internal_type_error(tmp_path: Path):
             raise TypeError("internal constructor failure")
 
     with pytest.raises(TypeError, match="internal constructor failure"):
-        builder_module._open_pyrosm_reader(pbf, BrokenOSM)
+        road_graph_module._open_pyrosm_reader(pbf, BrokenOSM)
 
 
 def test_build_osm_drive_graph_rejects_missing_or_empty_source(
@@ -888,3 +897,22 @@ def test_report_metadata_and_result_mappings_are_read_only():
         cast(dict, result.unit_to_node)["a"] = 99
     with pytest.raises(TypeError):
         cast(dict, result.report.metadata)["new"] = True
+
+
+def test_build_result_rejects_table_status_disagreement():
+    result = build_travel_time_table(_directed_graph(), {"a": 10, "b": 20})
+    assert result.table is not None
+
+    with pytest.raises(ValueError, match="table and report status disagree"):
+        TravelTimeBuildResult(
+            table=None,
+            report=result.report,
+            unit_to_node=result.unit_to_node,
+        )
+
+    with pytest.raises(ValueError, match="table and report status disagree"):
+        TravelTimeBuildResult(
+            table=result.table,
+            report=replace(result.report, status="not_applicable"),
+            unit_to_node=result.unit_to_node,
+        )
