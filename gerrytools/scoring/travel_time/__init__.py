@@ -35,12 +35,9 @@ from .builder import (
     SpeedRepairSummary,
     TravelTimeBuildReport,
     TravelTimeBuildResult,
-    build_osm_drive_graph,
     build_travel_time_table,
     build_travel_time_table_from_pbf,
     census_representative_points,
-    repair_nonpositive_edge_speeds,
-    snap_units_to_graph,
 )
 from .centroid import choose_centroid
 from .district import DistrictTravelScores, score_district
@@ -78,7 +75,6 @@ __all__ = [
     "TravelTimeTable",
     "CentroidWeightMode",
     "PairwiseWeightMode",
-    "build_osm_drive_graph",
     "build_travel_time_table",
     "build_travel_time_table_from_pbf",
     "census_representative_points",
@@ -87,11 +83,9 @@ __all__ = [
     "load_travel_time_table",
     "pairwise_travel_time",
     "plan_aggregate",
-    "repair_nonpositive_edge_speeds",
     "score_district",
     "score_plan",
     "save_travel_time_table",
-    "snap_units_to_graph",
     "centroid_trip_weight",
     "pairwise_trip_weight",
 ]

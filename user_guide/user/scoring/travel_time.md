@@ -27,9 +27,11 @@ denominator.
 1. Choose one representative point per geographic unit. Census internal points
    are available through `census_representative_points(...)`; callers may supply
    another documented point source.
-2. Build a directed OSM driving graph, add eligible vehicle ferries, assign edge
-   speeds and travel times, and retain the largest strongly connected component.
-3. Select one retained road node per unit with either nearest-node snapping or
+2. Build a directed OSM driving graph with ordinary service connectors, add
+   eligible vehicle ferries, assign edge speeds and travel times, and retain the
+   largest strongly connected component.
+3. Select one retained, snap-eligible road node per unit with either nearest-node
+   snapping or
    the optional polygon-aware policy described below.
 4. Route between every selected node in both directions. Define the scoring time
    for an unordered pair as the arithmetic mean of the two directed shortest-path
@@ -267,9 +269,11 @@ Canonical workflow:
 1. Create or supply a point GeoDataFrame of representative locations
    (`census_representative_points(...)` for Census `INTPTLAT20` / `INTPTLON20`,
    or any other Point frame with a declared CRS);
-2. build a directed driving graph from a local OSM PBF, add eligible vehicle
-   ferries, then retain the largest strongly connected component;
-3. select a retained road node using the documented point-only or polygon-aware
+2. build a directed driving graph from a local OSM PBF, retain ordinary service
+   connectors, add eligible vehicle ferries, then retain the largest strongly
+   connected component;
+3. select a retained, snap-eligible road node using the documented point-only or
+   polygon-aware
    rule and record representative-point-to-node distance;
 4. compute directed shortest paths, average opposite directions, and publish a
    table only when every snapped-node pair is mutually reachable.
@@ -301,26 +305,6 @@ else:
     print("Max snap distance (m):", result.report.max_snap_distance_m)
 ```
 
-Equivalent stepwise form:
-
-<!-- docs-test: skip -- requires user-supplied Census geography and OSM PBF files -->
-```python
-points = gs.census_representative_points(units, id_column="GEOID20")
-graph, ferry = gs.build_osm_drive_graph("kansas-latest.osm.pbf")
-unit_to_node, snap_distances = gs.snap_units_to_graph(
-    graph,
-    points,
-    id_column="GEOID20",
-    unit_polygons=units,
-)
-result = gs.build_travel_time_table(
-    graph,
-    unit_to_node,
-    snap_distances_m=snap_distances,
-    ferry=ferry,
-)
-```
-
 `build_travel_time_table_from_pbf(...)` requires a Point GeoDataFrame and accepts
 an optional polygon GeoDataFrame with matching unit IDs. With polygons supplied,
 the builder chooses the contained retained-network node nearest the representative
@@ -329,6 +313,18 @@ exterior ring; polygon holes are excluded from this fallback. Reported snap
 distances remain representative-point-to-node distances. The builder does not
 calculate centroids or repair boundaries. Users without Census internal-point
 columns must supply their own representative points.
+
+The road filter starts from Pyrosm's `driving+service` network and removes ways
+tagged with service subtypes `alley`, `driveway`, `parking`, `parking_aisle`,
+`private`, or `emergency_access`. Standard OSM access restrictions still exclude
+private and motor-vehicle-prohibited ways. Of the remaining unclassified service
+roads, the builder keeps only connected groups whose attachment nodes span two or
+more strongly connected components of the ordinary driving graph. A retained SCC
+bridge may carry a route, but a node
+whose incident road edges are all service roads cannot be selected as a unit's snap target. This lets divided entrances and similar
+connectors preserve genuine road connectivity without snapping units directly to
+parking aisles or other service-only road fragments. OSM tagging errors can still
+affect the result, so long snaps and removed SCC components remain review items.
 
 Vehicle-ferry inclusion is conservative. A ferry way must affirmatively permit
 `motor_vehicle`, `motorcar`, or `vehicle`, or carry a drivable `ferry=*` road

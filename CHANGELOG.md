@@ -23,8 +23,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   OD membership before returning `NaN`. The builder constructs travel times between connected
   road-network nodes selected from caller-supplied representative points (for example Census
   ``INTPTLAT20`` / ``INTPTLON20``) using point-only or optional polygon-aware snapping, adds
-  eligible vehicle ferries, retains the largest strongly connected driving component, and reports
-  snap-distance diagnostics. These scores are not part of the compiled `PlanEvaluator` engine.
+  eligible service-road SCC bridges and vehicle ferries, retains the largest strongly connected
+  driving component, excludes service-only nodes from snapping, and reports snap-distance diagnostics. These scores are not part of the compiled `PlanEvaluator` engine.
 - Travel-time builder speed repair: non-positive / non-finite edge speeds are imputed with a
   documented fallback (default 48 kph), travel times are recomputed, and
   ``SpeedRepairSummary`` counts are surfaced on the build report. Edges are never dropped.

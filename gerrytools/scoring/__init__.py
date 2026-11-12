@@ -103,7 +103,6 @@ from .travel_time import (
     TravelTimeBuildResult,
     TravelTimeScorer,
     TravelTimeTable,
-    build_osm_drive_graph,
     build_travel_time_table,
     build_travel_time_table_from_pbf,
     census_representative_points,
@@ -112,9 +111,7 @@ from .travel_time import (
     load_travel_time_table,
     pairwise_travel_time,
     pairwise_trip_weight,
-    repair_nonpositive_edge_speeds,
     save_travel_time_table,
-    snap_units_to_graph,
 )
 
 __all__ = [
@@ -188,7 +185,6 @@ __all__ = [
     "TravelTimeBuildReport",
     "TravelTimeBuildResult",
     "TravelTimeTable",
-    "build_osm_drive_graph",
     "build_travel_time_table",
     "build_travel_time_table_from_pbf",
     "census_representative_points",
@@ -196,9 +192,7 @@ __all__ = [
     "load_travel_time_table",
     "pairwise_trip_weight",
     "pairwise_travel_time",
-    "repair_nonpositive_edge_speeds",
     "save_travel_time_table",
-    "snap_units_to_graph",
     "centroid_travel_time",
     "PairwiseTravelTime",
     "CentroidTravelTime",

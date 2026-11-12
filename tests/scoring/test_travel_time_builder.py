@@ -18,18 +18,18 @@ from shapely.geometry import LineString, MultiLineString, Point, Polygon
 import gerrytools.scoring.travel_time.builder as builder_module
 from gerrytools.scoring.travel_time import (
     FerryBuildSummary,
-    build_osm_drive_graph,
     build_travel_time_table,
     build_travel_time_table_from_pbf,
     census_representative_points,
     load_travel_time_table,
-    repair_nonpositive_edge_speeds,
-    snap_units_to_graph,
 )
 from gerrytools.scoring.travel_time.builder import (
+    _repair_nonpositive_edge_speeds,
     add_vehicle_ferries,
+    build_osm_drive_graph,
     compute_directed_travel_times,
     parse_osm_duration_seconds,
+    snap_units_to_graph,
 )
 
 
@@ -169,7 +169,7 @@ def test_repair_nonpositive_edge_speeds_imputes_zero_speed_and_keeps_edge():
     graph = nx.MultiDiGraph()
     graph.add_edge(1, 2, length=1000.0, speed_kph=0.0, travel_time=float("inf"))
     graph.add_edge(2, 1, length=1000.0, speed_kph=50.0, travel_time=72.0)
-    summary = repair_nonpositive_edge_speeds(graph, fallback_speed_kph=48.0)
+    summary = _repair_nonpositive_edge_speeds(graph, fallback_speed_kph=48.0)
     assert summary.repaired_speed == 1
     assert summary.repaired_travel_time == 1
     assert summary.inspected == 2
@@ -187,7 +187,7 @@ def test_repair_nonpositive_edge_speeds_raises_when_length_missing():
     graph = nx.MultiDiGraph()
     graph.add_edge(1, 2, speed_kph=0.0, travel_time=float("inf"))
     with pytest.raises(ValueError, match="still have invalid travel_time"):
-        repair_nonpositive_edge_speeds(graph)
+        _repair_nonpositive_edge_speeds(graph)
 
 
 def test_component_audit_captures_removed_edges_without_retaining_nodes():
@@ -439,6 +439,7 @@ def test_add_vehicle_ferries_skips_route_whose_endpoints_snap_together(
 def test_snap_units_to_graph_returns_nodes_and_distances(monkeypatch: pytest.MonkeyPatch):
     _fake_osmnx(monkeypatch)
     graph = nx.MultiDiGraph(crs="EPSG:3857")
+    graph.add_nodes_from([1, 2])
     points = gpd.GeoDataFrame(
         {"id": ["a", "b"]}, geometry=[Point(0, 0), Point(1000, 0)], crs="EPSG:3857"
     )
@@ -585,6 +586,7 @@ def test_snap_units_to_graph_rejects_nonfinite_distance(monkeypatch: pytest.Monk
     )
     monkeypatch.setitem(sys.modules, "osmnx", fake)
     graph = nx.MultiDiGraph(crs="EPSG:3857")
+    graph.add_node(1)
     points = gpd.GeoDataFrame({"id": ["a"]}, geometry=[Point(0, 0)], crs="EPSG:3857")
     with pytest.raises(ValueError, match="finite graph distance"):
         snap_units_to_graph(graph, points, id_column="id")
@@ -647,6 +649,8 @@ def test_build_osm_drive_graph_orchestrates_pyrosm_and_osmnx(
     with pytest.warns(UserWarning, match="ferries were added before this filter"):
         graph, summary = build_osm_drive_graph(pbf)
     assert graph.graph["source_pbf"] == str(pbf.resolve())
+    assert graph.graph["network_type"] == "driving+scc_bridge_service"
+    assert graph.graph["pyrosm_network_type"] == "driving+service"
     assert graph.graph["ferry_speed_kph"] == 20.0
     assert set(graph) == {1, 2, 3}
     assert graph.graph["connectivity_filter"] == {
@@ -662,7 +666,8 @@ def test_build_osm_drive_graph_orchestrates_pyrosm_and_osmnx(
     assert summary == FerryBuildSummary()
     assert calls["osm_kwargs"] == {"keep_metadata": False}
     assert calls["add_edge_speeds"] == {"fallback": 48.0}
-    assert calls["network"] == {"network_type": "driving", "nodes": True}
+    assert calls["network"] == {"network_type": "driving+service", "nodes": True}
+    assert cast(dict, calls["to_graph"])["network_type"] == "driving+service"
     assert cast(dict, calls["to_graph"])["retain_all"] is True
     assert cast(dict, calls["ferries"])["keep_relations"] is False
     assert graph.graph["speed_repair"]["repaired_speed"] == 0

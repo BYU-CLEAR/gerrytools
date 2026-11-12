@@ -21,7 +21,7 @@ import networkx as nx
 import numpy as np
 import pandas as pd
 from scipy.sparse import csr_matrix
-from scipy.sparse.csgraph import dijkstra
+from scipy.sparse.csgraph import connected_components, dijkstra
 from shapely import STRtree
 from shapely.geometry import LineString, MultiLineString, MultiPolygon, Point, Polygon
 from shapely.ops import linemerge
@@ -31,10 +31,15 @@ from .table_io import save_travel_time_table
 
 DEFAULT_FERRY_SPEED_KPH = 20.0
 DEFAULT_FALLBACK_SPEED_KPH = 48.0
+_OSM_DRIVE_NETWORK_TYPE = "driving+service"
+_ROAD_NETWORK_POLICY = "driving+scc_bridge_service"
 BuildStatus = Literal["applicable", "not_applicable"]
 
 _ACCESS_ALLOWED = frozenset({"yes", "designated", "permissive", "official", "destination"})
 _ACCESS_DENIED = frozenset({"no", "private"})
+_EXCLUDED_SERVICE_CLASSES = frozenset(
+    {"alley", "driveway", "emergency_access", "parking", "parking_aisle", "private"}
+)
 _DRIVABLE_FERRY_CLASSES = frozenset(
     {
         "yes",
@@ -253,6 +258,160 @@ def _tag(value: Any) -> str | None:
     if value is None or (not isinstance(value, (list, tuple, dict)) and pd.isna(value)):
         return None
     return str(value).strip().lower()
+
+
+def _tag_values(value: Any) -> set[str]:
+    """Return normalized values from scalar, list, or semicolon-delimited OSM tags."""
+    if value is None or value is pd.NA:
+        return set()
+    try:
+        if pd.isna(value):
+            return set()
+    except (TypeError, ValueError):
+        pass
+    values = value if isinstance(value, (list, tuple, set, np.ndarray)) else [value]
+    normalized: set[str] = set()
+    for item in values:
+        normalized.update(part.strip().lower() for part in str(item).split(";") if part.strip())
+    return normalized
+
+
+def _directed_road_endpoints(edges: pd.DataFrame) -> tuple[np.ndarray, np.ndarray]:
+    """Expand raw OSM segments into directed endpoints for SCC classification."""
+    sources = edges["u"].to_numpy(dtype=np.int64, copy=False)
+    targets = edges["v"].to_numpy(dtype=np.int64, copy=False)
+    if sources.size == 0:
+        empty = np.array([], dtype=np.int64)
+        return empty, empty
+    oneway = (
+        edges["oneway"].map(_tag).to_numpy(dtype=object)
+        if "oneway" in edges.columns
+        else np.full(sources.size, None, dtype=object)
+    )
+    junction = (
+        edges["junction"].map(_tag).to_numpy(dtype=object)
+        if "junction" in edges.columns
+        else np.full(sources.size, None, dtype=object)
+    )
+    one_way = np.isin(oneway, ["yes", "true", "1", "-1", "t", "f"]) | (junction == "roundabout")
+    against = np.isin(oneway, ["-1", "t"])
+    along = one_way & ~against
+    reverse = one_way & against
+    both = ~one_way
+    return (
+        np.concatenate([sources[along], targets[reverse], sources[both], targets[both]]),
+        np.concatenate([targets[along], sources[reverse], targets[both], sources[both]]),
+    )
+
+
+def _filter_service_edges(
+    nodes: pd.DataFrame, edges: pd.DataFrame
+) -> tuple[pd.DataFrame, pd.DataFrame, dict[str, int]]:
+    """Keep unclassified service components only when they span base-road SCCs."""
+    stats = {
+        "excluded_subtype_edge_count": 0,
+        "excluded_nonbridge_edge_count": 0,
+        "retained_scc_bridge_edge_count": 0,
+    }
+    required = {"u", "v", "highway"}
+    if not required.issubset(edges.columns):
+        return nodes, edges, stats
+
+    if "service" in edges.columns:
+        excluded_subtype = (
+            edges["service"]
+            .map(lambda value: bool(_tag_values(value) & _EXCLUDED_SERVICE_CLASSES))
+            .to_numpy(dtype=bool)
+        )
+    else:
+        excluded_subtype = np.zeros(len(edges), dtype=bool)
+    stats["excluded_subtype_edge_count"] = int(excluded_subtype.sum())
+    permitted = edges.loc[~excluded_subtype].copy()
+
+    service_mask = (
+        permitted["highway"].map(lambda value: "service" in _tag_values(value)).to_numpy(dtype=bool)
+    )
+    service_positions = np.flatnonzero(service_mask)
+    keep = ~service_mask
+    if service_positions.size:
+        base = permitted.loc[~service_mask]
+        base_sources, base_targets = _directed_road_endpoints(base)
+        if base_sources.size:
+            base_nodes, base_inverse = np.unique(
+                np.concatenate([base_sources, base_targets]), return_inverse=True
+            )
+            base_matrix = csr_matrix(
+                (
+                    np.ones(base_sources.size, dtype=np.uint8),
+                    (base_inverse[: base_sources.size], base_inverse[base_sources.size :]),
+                ),
+                shape=(base_nodes.size, base_nodes.size),
+            )
+            _base_count, base_labels = connected_components(
+                base_matrix, directed=True, connection="strong", return_labels=True
+            )
+
+            service = permitted.iloc[service_positions]
+            service_nodes, service_inverse = np.unique(
+                np.concatenate([service["u"].to_numpy(), service["v"].to_numpy()]),
+                return_inverse=True,
+            )
+            edge_count = len(service)
+            service_matrix = csr_matrix(
+                (
+                    np.ones(edge_count * 2, dtype=np.uint8),
+                    (
+                        np.concatenate(
+                            [service_inverse[:edge_count], service_inverse[edge_count:]]
+                        ),
+                        np.concatenate(
+                            [service_inverse[edge_count:], service_inverse[:edge_count]]
+                        ),
+                    ),
+                ),
+                shape=(service_nodes.size, service_nodes.size),
+            )
+            service_count, service_labels = connected_components(
+                service_matrix, directed=False, return_labels=True
+            )
+            attachment_mask = np.isin(service_nodes, base_nodes)
+            attachment_nodes = service_nodes[attachment_mask]
+            attachment_base_labels = base_labels[np.searchsorted(base_nodes, attachment_nodes)]
+            component_pairs = np.unique(
+                np.column_stack([service_labels[attachment_mask], attachment_base_labels]),
+                axis=0,
+            )
+            spanned_scc_count = np.bincount(
+                component_pairs[:, 0] if component_pairs.size else np.array([], dtype=int),
+                minlength=service_count,
+            )
+            keep_service = spanned_scc_count[service_labels[service_inverse[:edge_count]]] >= 2
+        else:
+            keep_service = np.zeros(service_positions.size, dtype=bool)
+        keep[service_positions] = keep_service
+        stats["retained_scc_bridge_edge_count"] = int(keep_service.sum())
+        stats["excluded_nonbridge_edge_count"] = int((~keep_service).sum())
+
+    retained = permitted.iloc[np.flatnonzero(keep)].copy()
+    if "id" in nodes.columns:
+        used = np.unique(np.concatenate([retained["u"].to_numpy(), retained["v"].to_numpy()]))
+        nodes = nodes.loc[nodes["id"].isin(used.tolist())].copy()
+    return nodes, retained, stats
+
+
+def _service_only_nodes(graph: nx.MultiDiGraph) -> frozenset[Hashable]:
+    """Return retained nodes whose incident road edges are all service roads."""
+    candidates: set[Hashable] = set()
+    for u, v, data in graph.edges(data=True):
+        if "service" in _tag_values(data.get("highway")):
+            candidates.update((u, v))
+    if not candidates:
+        return frozenset()
+    for u, v, data in graph.edges(data=True):
+        if "service" not in _tag_values(data.get("highway")):
+            candidates.discard(u)
+            candidates.discard(v)
+    return frozenset(candidates)
 
 
 def _allows_motor_vehicle(row: Mapping[str, Any]) -> bool:
@@ -478,7 +637,7 @@ def add_vehicle_ferries(
     )
 
 
-def repair_nonpositive_edge_speeds(
+def _repair_nonpositive_edge_speeds(
     graph: nx.MultiDiGraph,
     *,
     fallback_speed_kph: float = DEFAULT_FALLBACK_SPEED_KPH,
@@ -527,7 +686,8 @@ def repair_nonpositive_edge_speeds(
             data["travel_time"] = float(length_value) / (speed_value * 1000.0 / 3600.0)
             repaired_travel_time += 1
         try:
-            travel_value = float(data.get("travel_time"))
+            raw_travel_time = data.get("travel_time")
+            travel_value = float(raw_travel_time) if raw_travel_time is not None else math.nan
         except (TypeError, ValueError):
             travel_value = math.nan
         if not np.isfinite(travel_value) or travel_value < 0:
@@ -585,7 +745,12 @@ def build_osm_drive_graph(
 ) -> tuple[nx.MultiDiGraph, FerryBuildSummary]:
     """Build the principal mutually routable driving graph from an OSM PBF.
 
-    All OSM driving components are retained until eligible vehicle ferries have
+    The graph starts from pyrosm's ``driving+service`` filter, removes
+    alleys, driveways, parking access, private service, and emergency-only ways,
+    then keeps only service components whose attachment nodes span two or more
+    ordinary-road strong components. These bridge links may carry routes but service-only nodes are excluded
+    from unit snapping. All selected OSM components are retained until eligible
+    vehicle ferries have
     been added. The returned graph is then restricted to its largest strongly
     connected component so that representative points cannot snap to isolated
     road fragments or directionally inaccessible components. When
@@ -605,7 +770,7 @@ def build_osm_drive_graph(
 
     osm = _open_pyrosm_reader(source, OSM)
     try:
-        nodes, edges = osm.get_network(network_type="driving", nodes=True)
+        nodes, edges = osm.get_network(network_type=_OSM_DRIVE_NETWORK_TYPE, nodes=True)
     except TypeError as exc:
         raise RuntimeError(
             f"pyrosm failed while parsing the driving network from {source}: {exc}. "
@@ -617,18 +782,21 @@ def build_osm_drive_graph(
         ) from exc
     if nodes is None or edges is None or len(nodes) == 0 or len(edges) == 0:
         raise ValueError(f"No drivable roads found in {source}")
+    nodes, edges, service_filter = _filter_service_edges(nodes, edges)
+    if len(nodes) == 0 or len(edges) == 0:
+        raise ValueError(f"No drivable roads found in {source} after service-road filtering")
     graph = OSM.to_graph(
         nodes,
         edges,
         graph_type="networkx",
-        network_type="driving",
+        network_type=_OSM_DRIVE_NETWORK_TYPE,
         retain_all=True,
         osmnx_compatible=True,
     )
     del nodes, edges
     graph = ox.routing.add_edge_speeds(graph, fallback=float(fallback_speed_kph))
     graph = ox.routing.add_edge_travel_times(graph)
-    speed_repair = repair_nonpositive_edge_speeds(graph, fallback_speed_kph=fallback_speed_kph)
+    speed_repair = _repair_nonpositive_edge_speeds(graph, fallback_speed_kph=fallback_speed_kph)
     graph = ox.project_graph(graph)
 
     ferry_tags = [
@@ -656,9 +824,18 @@ def build_osm_drive_graph(
         graph,
         include_component_audit=include_component_audit,
     )
+    snap_ineligible_nodes = _service_only_nodes(graph)
     graph.graph["source_pbf"] = str(source.resolve())
     graph.graph["ferry_speed_kph"] = float(ferry_speed_kph)
     graph.graph["fallback_speed_kph"] = float(fallback_speed_kph)
+    graph.graph["network_type"] = _ROAD_NETWORK_POLICY
+    graph.graph["pyrosm_network_type"] = _OSM_DRIVE_NETWORK_TYPE
+    graph.graph["service_filter"] = {
+        "excluded_classes": sorted(_EXCLUDED_SERVICE_CLASSES),
+        **service_filter,
+        "service_only_snap_ineligible_node_count": len(snap_ineligible_nodes),
+    }
+    graph.graph["snap_ineligible_nodes"] = snap_ineligible_nodes
     graph.graph["connectivity_filter"] = connectivity_filter
     if removed_component_edges is not None:
         graph.graph["removed_component_edges"] = removed_component_edges
@@ -698,8 +875,10 @@ def snap_units_to_graph(
     before snapping. The graph from :func:`build_osm_drive_graph` is already
     restricted to its principal strongly connected component.
 
-    With no ``unit_polygons``, each point is snapped to its nearest graph node.
-    When polygons are supplied, a unit first uses the contained graph node
+    Nodes incident only to service-road edges are ineligible for snapping,
+    though routes may traverse those edges. With no ``unit_polygons``, each point
+    is snapped to its nearest eligible graph node. When polygons are supplied, a
+    unit first uses the contained eligible graph node
     nearest its representative point. If the unit contains no graph node, it
     instead uses the graph node nearest any exterior ring of the unit. Interior
     rings (polygon holes) are deliberately excluded from that fallback. Returned
@@ -739,8 +918,16 @@ def snap_units_to_graph(
         ox = importlib.import_module("osmnx")
     except ImportError as exc:  # pragma: no cover - optional dependency
         raise ImportError("Install gerrytools[travel-time] to snap units to an OSM graph") from exc
+    snap_ineligible = frozenset(graph.graph.get("snap_ineligible_nodes", ()))
+    snap_graph = (
+        graph
+        if not snap_ineligible
+        else nx.subgraph_view(graph, filter_node=lambda node: node not in snap_ineligible)
+    )
+    if snap_graph.number_of_nodes() == 0:
+        raise ValueError("road graph contains no snap-eligible nodes")
     nearest, distances = ox.distance.nearest_nodes(
-        graph,
+        snap_graph,
         X=xs,
         Y=ys,
         return_dist=True,
@@ -798,9 +985,10 @@ def _snap_units_with_polygons(
             "unit_polygons geometry must contain valid, nonempty Polygon or MultiPolygon values"
         )
 
-    node_ids = list(graph.nodes)
+    snap_ineligible = frozenset(graph.graph.get("snap_ineligible_nodes", ()))
+    node_ids = [node for node in graph.nodes if node not in snap_ineligible]
     if not node_ids:
-        raise ValueError("road graph must contain at least one node")
+        raise ValueError("road graph must contain at least one snap-eligible node")
     node_xs = np.array([graph.nodes[node].get("x") for node in node_ids], dtype=float)
     node_ys = np.array([graph.nodes[node].get("y") for node in node_ids], dtype=float)
     if not np.isfinite(node_xs).all() or not np.isfinite(node_ys).all():
