@@ -21,21 +21,21 @@ import gerrytools.scoring.travel_time.road_graph as road_graph_module
 from gerrytools.scoring.travel_time import (
     FerryBuildSummary,
     TravelTimeBuildResult,
-    build_osm_drive_graph,
     build_travel_time_table,
     build_travel_time_table_from_pbf,
     census_representative_points,
     default_snapping_path,
     load_snapping_artifact,
     load_travel_time_table,
-    repair_nonpositive_edge_speeds,
-    snap_units_to_graph,
 )
 from gerrytools.scoring.travel_time.road_graph import (
+    _repair_nonpositive_edge_speeds,
     add_vehicle_ferries,
+    build_osm_drive_graph,
     parse_osm_duration_seconds,
 )
 from gerrytools.scoring.travel_time.routing import compute_directed_travel_times
+from gerrytools.scoring.travel_time.snapping import snap_units_to_graph
 
 
 def _directed_graph() -> nx.MultiDiGraph:
@@ -179,7 +179,7 @@ def test_repair_nonpositive_edge_speeds_imputes_zero_speed_and_keeps_edge():
     graph = nx.MultiDiGraph()
     graph.add_edge(1, 2, length=1000.0, speed_kph=0.0, travel_time=float("inf"))
     graph.add_edge(2, 1, length=1000.0, speed_kph=50.0, travel_time=72.0)
-    summary = repair_nonpositive_edge_speeds(graph, fallback_speed_kph=48.0)
+    summary = _repair_nonpositive_edge_speeds(graph, fallback_speed_kph=48.0)
     assert summary.repaired_speed == 1
     assert summary.repaired_travel_time == 1
     assert summary.inspected == 2
@@ -199,7 +199,7 @@ def test_repair_nonpositive_edge_speeds_raises_when_length_missing():
     graph = nx.MultiDiGraph()
     graph.add_edge(1, 2, speed_kph=0.0, travel_time=float("inf"))
     with pytest.raises(ValueError, match="still have invalid travel_time"):
-        repair_nonpositive_edge_speeds(graph)
+        _repair_nonpositive_edge_speeds(graph)
 
 
 def test_component_audit_captures_removed_edges_without_retaining_nodes():

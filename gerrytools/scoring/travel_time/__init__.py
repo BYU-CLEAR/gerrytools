@@ -26,10 +26,8 @@ from .road_graph import (
     DEFAULT_FERRY_SPEED_KPH,
     FerryBuildSummary,
     SpeedRepairSummary,
-    build_osm_drive_graph,
-    repair_nonpositive_edge_speeds,
 )
-from .snapping import census_representative_points, snap_units_to_graph
+from .snapping import census_representative_points
 from .table_io import (
     TimeUnit,
     TravelTimeArtifact,
@@ -52,7 +50,6 @@ __all__ = [
     "TravelTimeTable",
     "UnitSnap",
     "SpeedRepairSummary",
-    "build_osm_drive_graph",
     "build_travel_time_table",
     "build_travel_time_table_from_pbf",
     "census_representative_points",
@@ -61,9 +58,7 @@ __all__ = [
     "load_snapping_artifact",
     "load_travel_time_table",
     "pairwise_travel_time",
-    "repair_nonpositive_edge_speeds",
     "save_snapping_artifact",
     "save_travel_time_table",
-    "snap_units_to_graph",
     "travel_time_scores",
 ]

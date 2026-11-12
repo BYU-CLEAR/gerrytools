@@ -192,26 +192,6 @@ When `output_path` is supplied and snapping distances are available, the builder
 versioned companion file returned by `default_snapping_path(output_path)`. The table remains the
 scoring input; the JSON companion preserves the selected road node and snap distance for review.
 
-Equivalent stepwise form:
-
-<!-- docs-test: skip -- requires user-supplied Census geography and OSM PBF files -->
-```python
-points = tt.census_representative_points(units, id_column="GEOID20")
-graph, ferry = tt.build_osm_drive_graph("kansas-latest.osm.pbf")
-unit_to_node, snap_distances = tt.snap_units_to_graph(
-    graph,
-    points,
-    id_column="GEOID20",
-    unit_polygons=units,
-)
-result = tt.build_travel_time_table(
-    graph,
-    unit_to_node,
-    snap_distances_m=snap_distances,
-    ferry=ferry,
-)
-```
-
 `build_travel_time_table_from_pbf(...)` requires a Point GeoDataFrame and accepts
 an optional polygon GeoDataFrame with matching unit IDs. With polygons supplied,
 the builder chooses the contained retained-network node nearest the representative

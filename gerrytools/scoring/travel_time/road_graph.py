@@ -641,7 +641,7 @@ def add_vehicle_ferries(
     )
 
 
-def repair_nonpositive_edge_speeds(
+def _repair_nonpositive_edge_speeds(
     graph: nx.MultiDiGraph,
     *,
     fallback_speed_kph: float = DEFAULT_FALLBACK_SPEED_KPH,
@@ -822,7 +822,7 @@ def build_osm_drive_graph(
     del nodes, edges
     graph = ox.routing.add_edge_speeds(graph, fallback=float(fallback_speed_kph))
     graph = ox.routing.add_edge_travel_times(graph)
-    speed_repair = repair_nonpositive_edge_speeds(graph, fallback_speed_kph=fallback_speed_kph)
+    speed_repair = _repair_nonpositive_edge_speeds(graph, fallback_speed_kph=fallback_speed_kph)
     graph = ox.project_graph(graph)
 
     ferry_tags = [
